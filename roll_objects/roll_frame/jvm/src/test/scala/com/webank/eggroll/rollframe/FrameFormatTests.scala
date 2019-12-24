@@ -18,6 +18,8 @@
 
 package com.webank.eggroll.rollframe
 
+import java.lang.management.ManagementFactory
+
 import com.webank.eggroll.core.io.adapter.{BlockDeviceAdapter, HdfsBlockAdapter}
 import com.webank.eggroll.format._
 import org.junit.{Before, Test}
@@ -82,7 +84,6 @@ class FrameFormatTests {
 
     assert(fbFromJvm.readDouble(0, 10) == 10.0)
   }
-
 
   @Test
   def testHdfsFrameDB(): Unit = {
@@ -232,42 +233,53 @@ class FrameFormatTests {
     cr.close()
   }
 
+  /**
+    * better set -Xmx bigger
+    */
   @Test
   def testFrameFork(): Unit = {
-    val fieldCount = 5000
-    val rowCount =  10// total value count = rowCount * fbCount * fieldCount
+    val fieldCount = 100000
+    val rowCount =  1// total value count = rowCount * fbCount * fieldCount
+    val schema = testAssets.getDoubleSchema(fieldCount)
     var start = System.currentTimeMillis()
-    val fb = new FrameBatch(new FrameSchema(testAssets.getDoubleSchema(fieldCount)), rowCount)
+    val rootSchema = new FrameSchema(schema)
+
+    println(s"create shema time = ${System.currentTimeMillis() - start} ms")
+    start = System.currentTimeMillis()
+    val fb = new FrameBatch(rootSchema, rowCount)
+
+    println(s"new FrameBatch time = ${System.currentTimeMillis() - start} ms")
+    start = System.currentTimeMillis()
     for {x <- 0 until fieldCount
          y <- 0 until rowCount} {
       fb.writeDouble(x, y, 1)
     }
-
-    println(s"new FrameBatch time = ${System.currentTimeMillis() - start} ms")
+    println(s"set value time = ${System.currentTimeMillis() - start} ms\n")
     start = System.currentTimeMillis()
     val fb1 = FrameUtils.copy(fb)
     println(s"copy fb1 time= ${System.currentTimeMillis() - start} ms")
     start = System.currentTimeMillis()
-    val fb2 = FrameUtils.fork(fb)
-    println(s"fork fb2 time = ${System.currentTimeMillis() - start} ms")
+    val fb2 = FrameUtils.copy(fb)
+    println(s"copy fb2 time = ${System.currentTimeMillis() - start} ms\n")
     start = System.currentTimeMillis()
     val fb3 = FrameUtils.fork(fb)
     println(s"fork fb3 time = ${System.currentTimeMillis() - start} ms")
+    start = System.currentTimeMillis()
+    val fb4 = FrameUtils.fork(fb)
+    println(s"fork fb4 time = ${System.currentTimeMillis() - start} ms")
 
-    fb.writeDouble(0,0,0)
-    fb1.writeDouble(0,0,111)
-    fb2.writeDouble(0,0,222)
-    fb3.writeDouble(0,0,333)
 
     val ads = fb.rootSchema.arrowSchema.getVector(0).getDataBufferAddress
     val ads1 = fb1.rootSchema.arrowSchema.getVector(0).getDataBufferAddress
     val ads2 = fb2.rootSchema.arrowSchema.getVector(0).getDataBufferAddress
     val ads3 = fb3.rootSchema.arrowSchema.getVector(0).getDataBufferAddress
+    val ads4 = fb4.rootSchema.arrowSchema.getVector(0).getDataBufferAddress
 
     assert((ads != ads1) && (ads != ads2) && (ads != ads3))
-    assert(fb.readDouble(0,0)==0)
-    assert(fb1.readDouble(0,0)==111)
-    assert(fb2.readDouble(0,0)==222)
-    assert(fb3.readDouble(0,0)==333)
+    assert(fb.readDouble(1,0)==1)
+    assert(fb1.readDouble(2,0)==1)
+    assert(fb2.readDouble(3,0)==1)
+    assert(fb3.readDouble(4,0)==1)
+    assert(fb4.readDouble(5,0)==1)
   }
 }

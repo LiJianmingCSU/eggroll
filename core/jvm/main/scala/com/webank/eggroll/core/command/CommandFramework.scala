@@ -38,7 +38,7 @@ case class CollectiveCommand(taskPlan: TaskPlan) {
     val job = taskPlan.job
     val commandUri = taskPlan.uri
 
-    val finishLatch = new CountDownLatch(job.inputs.size)
+    val finishLatch = new CountDownLatch(job.inputs.length)
     val errors = new DistributedRuntimeException()
     val results = mutable.ArrayBuffer[ErTask]()
 
@@ -68,20 +68,21 @@ case class CollectiveCommand(taskPlan: TaskPlan) {
     if (!errors.check()) {
       errors.raise()
     }
+
+    // TODO: close grpc
     results.toArray
   }
 
   def toTasks(job: ErJob): Array[ErTask] = {
     val inputs: Array[ErStore] = job.inputs
-    val inputPartitionSize = inputs.head.partitions.size
+    val inputPartitionSize = inputs.head.partitions.length
 
     val outputs: Array[ErStore] = job.outputs
     val result = mutable.ArrayBuffer[ErTask]()
     result.sizeHint(outputs(0).partitions.length)
 
-
     var aggregateOutputPartition: ErPartition = null
-    if (outputs.head.partitions.size == 1) {
+    if (outputs.head.partitions.length == 1) {
       aggregateOutputPartition = outputs.head.partitions.head
     }
     for (i <- 0 until inputPartitionSize) {

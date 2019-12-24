@@ -42,8 +42,8 @@ object RfServerLauncher {
     new ClusterManager
   }
 
-  val storeLocator = ErStoreLocator(name = "a1", namespace = "test1", storeType = StringConstants.HDFS)
-  val input = ErStore(storeLocator = storeLocator,
+  val storeLocator: ErStoreLocator = ErStoreLocator(name = "a1", namespace = "test1", storeType = StringConstants.HDFS)
+  val input: ErStore = ErStore(storeLocator = storeLocator,
     partitions = Array(
       ErPartition(id = 0, storeLocator = storeLocator, processor = clusterManager.clusterNode0),
       ErPartition(id = 1, storeLocator = storeLocator, processor = clusterManager.clusterNode1),
@@ -62,14 +62,12 @@ object RfServerLauncher {
 
     // whether is't client mode
     mode match {
-      case "client" => {
+      case "client" =>
         println("Client Mode...")
         clientTask(taskType)
-      }
-      case _ => {
+      case _ =>
         println(s"Start RollFrame Servant, server id = $nodeId")
         clusterManager.startServerCluster(nodeId = nodeId)
-      }
     }
   }
 
@@ -157,17 +155,14 @@ object RfServerLauncher {
 
     val output = ErStore(storeLocator = ErStoreLocator(name = "a1", namespace = "test1", storeType = StringConstants.HDFS))
 
-    write(FrameDB(output, 0))
-    write(FrameDB(output, 1))
-    write(FrameDB(output, 2))
-    read(FrameDB(output, 0))
-    read(FrameDB(output, 1))
-    read(FrameDB(output, 2))
+    (0 until 3).foreach{ i =>
+      write(FrameDB(output, i))
+      read(FrameDB(output, i))
+    }
   }
 
 
   private def getSchema(fieldCount: Int): String = {
-
     val sb = new StringBuilder
     sb.append("""{"fields": [""")
     (0 until fieldCount).foreach { i =>

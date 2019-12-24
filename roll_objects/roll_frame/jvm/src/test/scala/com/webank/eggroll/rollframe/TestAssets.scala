@@ -38,6 +38,21 @@ object TestAssets {
     sb.toString()
   }
 
+  def getLongSchema(fieldCount: Int): String = {
+    val sb = new StringBuilder
+    sb.append(
+      """{
+                 "fields": [""")
+    (0 until fieldCount).foreach { i =>
+      if (i > 0) {
+        sb.append(",")
+      }
+      sb.append(s"""{"name":"long$i", "type": {"name" : "int","bitWidth" : 64,"isSigned":true}}""")
+    }
+    sb.append("]}")
+    sb.toString()
+  }
+
   /**
     * mock -- use to load Cache on local mode
     * @param inStore  ErStore

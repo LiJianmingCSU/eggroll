@@ -38,17 +38,29 @@ class FrameBatch(val rootSchema: FrameSchema,
                  virtualRowStart: Int = 0,
                  virtualRowCount: Int = -1) {
   val rootVectors: Array[FrameVector] = if (virtualRowCount > 0) {
-    rootSchema.columnarVectors.map(
-      v => new FrameVector(v.fieldVector, virtualRowStart, virtualRowCount))
+    rootSchema.columnarVectors.map( v =>
+        new FrameVector(v.fieldVector, virtualRowStart, virtualRowCount))
   } else {
     rootSchema.columnarVectors
   }
 
   if (allocateNewRows > 0) {
+    rootSchema.arrowSchema.getFieldVectors.forEach{fv =>
+      fv.setInitialCapacity(allocateNewRows)
+      fv.allocateNew()
+    }
     rootSchema.arrowSchema.setRowCount(allocateNewRows)
   }
 
   val fieldCount: Int = rootSchema.columnarVectors.length
+
+  lazy val memorySize: Int = {
+    var size = 0
+    rootVectors.foreach{i =>
+      size += i.fieldVector.getBufferSize
+    }
+    size/(1024*1024)
+  }
 
   def rowCount: Int =
     if (virtualRowCount > 0) virtualRowCount else rootSchema.arrowSchema.getRowCount
@@ -67,6 +79,7 @@ class FrameBatch(val rootSchema: FrameSchema,
   /**
     * Slice this root at desired index and length.
     * But FieldVector dataBufferAddress is the same.
+    *
     * @param index  start position of the slice
     * @param length length of the slice
     * @return the sliced root
@@ -74,7 +87,7 @@ class FrameBatch(val rootSchema: FrameSchema,
   def sliceRealByRow(index: Int, length: Int): FrameBatch = {
     require(index >= 0, s"index: $index should >= 0")
     require(length >= 0, s"length: $length should >= 0")
-    new FrameBatch(new FrameSchema(rootSchema.arrowSchema.slice(index, length)))
+    new FrameBatch(new FrameSchema(rootSchema.arrowSchema.slice(index, if (index + length > rowCount) rowCount - index else length)))
   }
 
   def readDouble(field: Int, row: Int): Double = rootVectors(field).readDouble(row)

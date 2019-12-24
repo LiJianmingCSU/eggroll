@@ -27,13 +27,14 @@ import com.webank.eggroll.core.io.adapter.{BlockDeviceAdapter, FileBlockAdapter,
 import com.webank.eggroll.core.io.util.IoUtils
 import com.webank.eggroll.core.meta.{ErPartition, ErStore}
 import com.webank.eggroll.rollframe.NioTransferEndpoint
+import io.netty.util.internal.PlatformDependent
 import org.apache.arrow.flatbuf.MessageHeader
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.dictionary.DictionaryProvider
 import org.apache.arrow.vector.ipc.message._
 import org.apache.arrow.vector.ipc.{ArrowReader, ArrowStreamReader, ArrowStreamWriter, ReadChannel}
 import org.apache.arrow.vector.types.pojo.Schema
-import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot, VectorUnloader}
+import org.apache.arrow.vector.{BitVectorHelper, FieldVector, Float8Vector, VectorSchemaRoot, VectorUnloader}
 import org.apache.commons.lang3.StringUtils
 
 import scala.collection.JavaConverters._
@@ -69,29 +70,25 @@ object FrameUtils {
     ret
   }
 
-  /**
-    * copy a new FrameBatch with serialization
-    *
-    * @param fb FrameBatch
-    * @return
-    */
   @deprecated("Use `FrameUtils.fork() instead`")
   def copy(fb: FrameBatch): FrameBatch = {
     fromBytes(toBytes(fb))
   }
 
   /**
-    * copy a new FrameBatch with arrow transferPair
+    * transfer buffer to a new FrameBatch
+    *
     * @param fb FrameBatch
-    * @return new FrameBatch
+    * @return
     */
-  def fork(fb: FrameBatch): FrameBatch = {
+  def transfer(fb: FrameBatch): FrameBatch = {
     val transfer: VectorSchemaRoot = {
       val sliceVectors = fb.rootSchema.arrowSchema.getFieldVectors.asScala.map((v: FieldVector) => {
-        def foo(v: FieldVector) = {
+        def foo(v: FieldVector): FieldVector = {
           val transferPair = v.getTransferPair(v.getAllocator)
           transferPair.transfer()
-          transferPair.getTo.asInstanceOf[FieldVector]
+          val fv = transferPair.getTo.asInstanceOf[FieldVector]
+          fv
         }
         foo(v)
       }).asJava
@@ -100,6 +97,36 @@ object FrameUtils {
     new FrameBatch(new FrameSchema(transfer))
   }
 
+  /**
+    * copy a new FrameBatch, validityBuffer use bit store date mark validity value, valueBuffer use bytes store date
+    * validityBuffer + valueBuffer = all allocated Buffer
+    * len(validityBuffer) * 8 = buffer capacity, so max rowCount <= buffer capacity
+    * len(valueBuffer) + len(validity) = pow(2,n)
+    * rowCount * 8 <= len(valueBuffer)
+    *
+    * @param fb FrameBatch
+    * @return new FrameBatch
+    */
+  def fork(fb: FrameBatch): FrameBatch = {
+    val transfer: VectorSchemaRoot = {
+      val sliceVectors = fb.rootSchema.arrowSchema.getFieldVectors.asScala.map((from: FieldVector) => {
+        val field = from.getField
+        val res = field.createVector(from.getAllocator)
+        val rowCount = from.getValueCount
+        res.setInitialCapacity(rowCount)
+        res.allocateNew()
+        res.setValueCount(rowCount)
+
+        // copy by each
+        for (i <- 0 until rowCount) {
+          res.copyFrom(i, i, from) // use sun.misc.Unsafe
+        }
+        res.asInstanceOf[FieldVector]
+      }).asJava
+      new VectorSchemaRoot(sliceVectors)
+    }
+    new FrameBatch(new FrameSchema(transfer))
+  }
 }
 
 // TODO: where to delete a RollFrame?
@@ -150,7 +177,7 @@ object FrameDB {
     case CACHE => new JvmFrameDB(opts(PATH))
     case QUEUE => new QueueFrameDB(opts(PATH), opts(TOTAL).toInt)
     case HDFS => new HdfsFrameDB(opts(PATH))
-    case NETWORK => new NetworkFrameDB(opts(PATH), opts(HOST), opts(PORT).toInt)
+    case NETWORK => new NetworkFrameDB(opts(PATH), opts(HOST), opts(PORT).toInt) // TODO: add total num
     case _ => new FileFrameDB(opts(PATH))
   }
 
@@ -289,7 +316,6 @@ class QueueFrameDB(path: String, total: Int) extends FrameDB {
 }
 
 class NetworkFrameDB(path: String, host: String, port: Int) extends FrameDB {
-  // TODO: client need multi-thread ?
   var client: NioTransferEndpoint = _
 
   override def writeAll(batches: Iterator[FrameBatch]): Unit = {
@@ -304,14 +330,19 @@ class NetworkFrameDB(path: String, host: String, port: Int) extends FrameDB {
   override def readAll(): Iterator[FrameBatch] = {
     // read FrameBatch from local queue, if FrameBatch was used many time, must be loaded to cache
     new Iterator[FrameBatch] {
+      // TODO: only send/receive one batch currently. If add a variable named 'total' like queueFrameDB, can't keep a union
+      //       apply function of FrameDB.
+      private var remaining = 1
+
       override def hasNext: Boolean = {
-        !QueueFrameDB.getOrCreateQueue(path).isEmpty
+        remaining > 0
       }
 
       override def next(): FrameBatch = {
-        println("taking from queue:" + path)
+        println("taking from network queue:" + path)
+        remaining -= 1
         val ret = QueueFrameDB.getOrCreateQueue(path).take
-        println("token from queue:" + path)
+        println("token from network queue:" + path)
         ret
       }
     }

@@ -38,6 +38,7 @@ class CommandService extends CommandServiceGrpc.CommandServiceImplBase with Logg
    */
   override def call(request: Command.CommandRequest,
                     responseObserver: StreamObserver[Command.CommandResponse]): Unit = {
+
     grpcServerWrapper.wrapGrpcServerRunnable(responseObserver, () => {
       logInfo(s"${ModuleConstants.COMMAND_WITH_BRACKETS} received")
       //logInfo(s"${ModuleConstants.COMMAND_WITH_BRACKETS} received: ${ToStringUtils.toOneLineString(request)}")

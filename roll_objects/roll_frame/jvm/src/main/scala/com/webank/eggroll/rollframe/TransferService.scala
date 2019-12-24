@@ -84,7 +84,7 @@ class NioTransferEndpoint {
             headLenBuf.clear()
             headPathBuf.clear()
             val fr = new FrameReader(ch)
-            FrameDB.queue(path, -1).writeAll(fr.getColumnarBatches()) // why would block until readall
+            FrameDB.queue(path, -1).writeAll(fr.getColumnarBatches())
             println("save finished:" + path)
           }
         }
